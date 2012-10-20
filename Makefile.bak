@@ -1,0 +1,12 @@
+libstub.so:stub.o
+	g++ -shared -pthread -Wl,-z,noexecstack -Wl,-soname,libstub.so -o libstub.so -Wl,--start-group stub.o ../../out/Default/obj.target/libppapi_cpp.a ../../out/Default/obj.target/libppapi_cpp_objects.a -Wl,--end-group  -I /home/bxl/ -g
+
+stub.o:
+	g++  '-DNO_HEAPCHECKER' '-DCHROMIUM_BUILD' '-DENABLE_REMOTING=1' '-DENABLE_GPU=1' '-D__STDC_FORMAT_MACROS' '-DDYNAMIC_ANNOTATIONS_ENABLED=1' '-D_DEBUG' -I /home/bxl/ -Werror -pthread -fno-exceptions -Wall -Wno-unused-parameter -Wno-missing-field-initializers -D_FILE_OFFSET_BITS=64 -fvisibility=hidden -pipe -fPIC -fno-strict-aliasing -fPIC -fvisibility=hidden -fvisibility=hidden -O0 -fno-rtti -fno-threadsafe-statics -fvisibility-inlines-hidden -MMD -MF stub.o.d.raw -g -c -o stub.o stub.cc
+	#g++  -fPIC -g -Wall -c stub.cc -o stub.o -I /home/bxl/
+
+clean:
+	rm stub.o.d.raw stub.o libstub.so
+
+run:
+	google-chrome -d --register-pepper-plugins="/home/bxl/ppapi/examples/stub/libstub.so;application/x-ppapi-example" --ppapi-out-of-process  file:///home/bxl/example.html --ppapi-plugin-launcher='xterm -title plugin -e gdb --eval-command=run --args' 
