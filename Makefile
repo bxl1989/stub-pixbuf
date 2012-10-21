@@ -7,7 +7,7 @@ stub-pixbuf.o:
 	#g++  -fPIC -g -Wall -c stub.cc -o stub.o -I /home/bxl/
 
 clean:
-	rm stub-pixbuf.o.d.raw stub-pixbuf.o libstub-pixbuf.so
+	rm stub-pixbuf.o libstub-pixbuf.so
 
 run:
 	google-chrome --no-sandbox --register-pepper-plugins="/home/bxl/ppapi-new/ppapi/examples/stub-pixbuf/libstub-pixbuf.so;application/x-ppapi-example" --ppapi-out-of-process  file:///home/bxl/ppapi-new/ppapi/examples/stub-pixbuf/example.html 
