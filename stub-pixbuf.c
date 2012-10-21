@@ -6,39 +6,8 @@
 // using C++, you will want to look at stub.cc which uses the more convenient
 // C++ wrappers.
 
-#include <stddef.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <gtk/gtk.h>
-#include <cairo.h>
-#include <math.h>
+#include "stub-pixbuf.h"
 
-#include "ppapi/c/pp_errors.h"
-#include "ppapi/c/pp_module.h"
-#include "ppapi/c/ppb.h"
-#include "ppapi/c/ppp.h"
-#include "ppapi/c/pp_instance.h"
-#include "ppapi/c/pp_var.h"
-#include "ppapi/c/pp_bool.h"
-#include "ppapi/c/pp_completion_callback.h"
-#include "ppapi/c/ppp_instance.h"
-#include "ppapi/c/ppb_graphics_2d.h"
-#include "ppapi/c/ppb_image_data.h"
-#include "ppapi/c/ppb_instance.h"
-#include "ppapi/c/ppb_core.h"
-#include "ppapi/c/ppb_view.h"
-
-
-PP_Module g_module_id;
-PPB_GetInterface g_get_browser_interface = NULL;
-
-PP_Instance CurInstance;
-const PPB_ImageData *g_image_data_interface;
-const PPB_Graphics2D *g_graphics_2d_interface;
-const PPB_Instance* g_instance_interface;
-const PPB_View* g_view_interface;
-const PPB_Core* g_core_interface;
 
 PP_EXPORT int32_t PPP_InitializeModule(PP_Module module_id,
                                        PPB_GetInterface get_browser_interface) {
@@ -60,10 +29,14 @@ PP_EXPORT int32_t PPP_InitializeModule(PP_Module module_id,
 
 PP_EXPORT void PPP_ShutdownModule() {
 }
+
+/*
 static void
 print_hello (GtkWidget *widget,gpointer   data){
 	  g_print ("Hello World\n");
 }
+*/
+
 
 #define FRAME_DELAY 50
 
@@ -97,75 +70,8 @@ static GtkWidget *da;
 
 
 
-typedef struct _GdkPixbuf{
-	PP_Resource image;
-}GdkPixbuf;
 
-void FlushCompletionCallback(void *user_data, int32_t result){
 
-}
-#define gdk_pixbuf_new_from_file(filename, error) \
-	_gdk_pixbuf_new_from_file(Instance, filename, error)
-GdkPixbuf *_gdk_pixbuf_new_from_file (PP_Instance instance, const char *filename, GError **error){
-	cairo_surface_t *image_surface;
-	PP_Resource image, graphics;
-	unsigned char *surface_data;
-	unsigned char *image_data;
-	struct PP_ImageDataDesc image_desc;
-	PP_Size size;
-	int num_chars, i;
-	GdkPixbuf *pixbuf = (GdkPixbuf *)malloc(sizeof(GdkPixbuf));
-	image_surface = cairo_image_surface_create_from_png(filename);
-	if(!image_surface){
-		printf("cairo_image_surface_from file() error!\n");
-		return NULL;
-	}
-	size.width = cairo_image_surface_get_width(image_surface);
-	size.height = cairo_image_surface_get_height(image_surface);
-	image = pixbuf->image = g_image_data_interface->Create(
-		instance, PP_IMAGEDATAFORMAT_BGRA_PREMUL,&size,PP_TRUE);
-	if(!image){
-		printf("Image data create error!\n");
-		return NULL;
-	}
-	g_image_data_interface->Describe(image, &image_desc);
-	image_data = (unsigned char *)g_image_data_interface->Map(image);
-	if(!image_data){
-		g_core_interface->ReleaseResource(image);
-		return NULL;
-	}
-	num_chars = image_desc.stride * size.height;
-	surface_data = cairo_image_surface_get_data(image_surface);
-	memcpy(image_data, surface_data, num_chars*sizeof(char));
-	cairo_surface_destroy(image_surface);
-	//---
-	printf("CurInstance: %d\n", CurInstance);
-	if(!(graphics = g_graphics_2d_interface->Create(CurInstance, &size, PP_FALSE))){
-		printf("Create graphics error!\n");
-		return NULL;
-	}
-	if(!g_instance_interface->BindGraphics(CurInstance, graphics)){
-		printf("BindGraphics error!\n");
-		return NULL;
-	}
-	g_graphics_2d_interface->ReplaceContents(graphics, image);
-	g_graphics_2d_interface->Flush(graphics, PP_MakeCompletionCallback(&FlushCompletionCallback, NULL));
-	//---
-	
-	return pixbuf;
-
-}
-
-int gdk_pixbuf_get_width(GdkPixbuf *pixbuf){
-	struct PP_ImageDataDesc image_desc;
-	g_image_data_interface->Describe(pixbuf->image, &image_desc);
-	return image_desc.size.width;
-}
-int gdk_pixbuf_get_height(GdkPixbuf *pixbuf){
-	struct PP_ImageDataDesc image_desc;
-	g_image_data_interface->Describe(pixbuf->image, &image_desc);
-	return image_desc.size.height;
-}
 /* Loads the images for the demo and returns whether the operation succeeded */
 static gboolean
 load_pixbufs (void)
@@ -194,21 +100,6 @@ load_pixbufs (void)
 
 	return TRUE;
 }
-void
-gdk_cairo_set_source_pixbuf (cairo_t         *cr,
-                              const GdkPixbuf *pixbuf,
-                              double          pixbuf_x,
-                              double          pixbuf_y){
-	unsigned char *image_data;
-	cairo_surface_t *surface;
-	int32_t width, height, stride;
-	width = gdk_pixbuf_get_width(pixbuf);
-	height = gdk_pixbuf_get_height(pixbuf);
-	image_data = g_image_data_interface->Map(pixbuf->image);
-	stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, width);
-	surface = cairo_image_surface_create_for_data(image_data, CAIRO_FORMAT_ARGB32, width, height, stride);
-	cairo_set_source_surface(cr, surface, pixbuf_x, pixbuf_y);	
-}
 /* Expose callback for the drawing area */
 static gboolean
 draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
@@ -223,17 +114,6 @@ draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 
 static int frame_num;
 
-void gdk_pixbuf_copy_area (
-		const GdkPixbuf *src_pixbuf, 
-		int src_x, int src_y, 
-		int width, int height, 
-		GdkPixbuf *dest_pixbuf, int dest_x, int dest_y){
-	
-
-}
-void gtk_widget_queue_draw(GtkWidget *widget){
-	
-} 
 
 /* Timeout handler to regenerate the frame */
 static gint
@@ -318,39 +198,22 @@ destroy_cb (GObject *object, gpointer data)
 }
 
 //-----
-void gtk_main(){
-	return;
-}
-#define G_SIGNAL_NUM 10
-typedef	gboolean (* _g_signal_callback)	(GtkWidget *widget, cairo_t *cr, gpointer data);
-typedef struct _g_signal_node{
-	_g_signal_callback g_signal_callback;	
-/*	gboolean (* g_signal_callback) 
-		(GtkWidget *widget, cairo_t *cr, gpointer data);
-*/
-}g_signal_node;
 
-
-typedef struct _GtkWidget{
-	g_signal_node g_signal_list[G_SIGNAL_NUM];
-
-
-}GtkWidget;
-enum g_signal_id{
-	DRAW
-};
-uint32_t g_signal_parse_name(const char *name){
-	return g_signal_id_lookup(name);
-}
 uint32_t g_signal_id_lookup(const char *name){
 	if(!strcmp(name, "draw"))
 		return DRAW;
 }
-void g_signal_connect(GtkWidget *instance, const char *detailed_signal, 
+uint32_t g_signal_parse_name(const char *name){
+	return g_signal_id_lookup(name);
+}
+#define g_signal_connect(instance, detailed_signal, c_handler, data)\
+	_g_signal_connect(instance, detailed_signal, c_handler, data)
+	
+void _g_signal_connect(GtkWidget *instance, const char *detailed_signal, 
 		_g_signal_callback c_handler,void *data){
 	uint32_t detailed_signal_id;
-	detailed_signal_id = gsignal_parse_name(detailed_signal);
-	instance->g_signal_list[detailed_signal_id] = c_handler;
+	detailed_signal_id = g_signal_parse_name(detailed_signal);
+	instance->g_signal_list[detailed_signal_id].g_signal_callback = c_handler;
 }
 //-----
 
@@ -401,9 +264,6 @@ PP_Bool DidCreate(PP_Instance Instance, uint32_t argc, const char *argn[], const
 	GtkWidget *window;
 	GtkWidget *button;
 	gtk_init (&argcc, NULL);
-
-	
-	
 	
 	window = gtk_window_new (GTK_WINDOW_TOPLEVEL);
 
