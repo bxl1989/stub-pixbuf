@@ -34,11 +34,9 @@ typedef unsigned int guint;
 #define TRUE 1
 #define FALSE 0
 #define G_SIGNAL_NUM 10
-#define GDK_COLORSPACE_RGB 0
-#define GTK_WINDOW_TOPLEVEL
+#define GTK_WINDOW_TOPLEVEL 0
 #define GTK_WINDOW
-#define GTK_CONTAINER
-#define GDK_INTERP_NEAREST 0
+#define GTK_CONTAINER (GtkContainer *)
 #define G_CALLBACK(handler) ((_g_signal_callback)(handler)) 
 
 #define G_PI 3.1415926535
@@ -49,7 +47,12 @@ typedef unsigned int guint;
 enum g_signal_id{
 	DRAW
 };
-
+typedef enum{
+	GDK_COLORSPACE_RGB
+}GdkColorspace; 
+typedef enum{
+	GDK_INTERP_NEAREST
+}GdkInterpType;
 typedef struct _GError{
 }GError;
 typedef struct _GtkWidget GtkWidget;
@@ -69,8 +72,6 @@ typedef struct _GtkWidget{
 typedef struct _GdkPixbuf{
 	PP_Resource image;
 }GdkPixbuf;
-typedef struct _GtkContainer{
-}GtkContainer;
 typedef struct _GdkRectangle{
 	int x,y;
 	int width,height;
@@ -78,6 +79,7 @@ typedef struct _GdkRectangle{
 typedef struct _GObject{
 }GObject;
 typedef GtkWidget GtkWindow;
+typedef GtkWidget GtkContainer;
 typedef gint (* GSourceFunc)(gpointer data);
 
 extern GtkWidget *gtk_drawing_area_new (void);
@@ -87,8 +89,8 @@ extern void gtk_container_add(GtkContainer*, GtkWidget*);
 extern void gtk_widget_queue_draw(GtkWidget *widget);
 extern void gtk_main_quit (void);
 extern void gtk_main(void);
-extern void gtk_init (uint32_t, const char *[]);
-extern void gtk_window_set_resizable (GtkWindow *window, gboolean resizable){
+extern void gtk_init (int32_t *, const char **[]);
+extern void gtk_window_set_resizable (GtkWindow *window, gboolean resizable);
 extern GtkWidget * gtk_window_new (const uint32_t);
 
 extern GdkPixbuf *_gdk_pixbuf_new_from_file (PP_Instance instance, const char *filename, GError **error);
@@ -98,13 +100,20 @@ extern int gdk_pixbuf_get_width(const GdkPixbuf *pixbuf);
 extern int gdk_pixbuf_get_height(const GdkPixbuf *pixbuf);
 extern void gdk_cairo_set_source_pixbuf (cairo_t *cr, const GdkPixbuf *pixbuf, double pixbuf_x, double pixbuf_y);
 extern void gdk_pixbuf_copy_area (const GdkPixbuf *src_pixbuf, int src_x, int src_y, int width, int height, GdkPixbuf *dest_pixbuf, int dest_x, int dest_y);
-extern GdkPixbuf * gdk_pixbuf_new (GdkColorspace colorspace, gboolean has_alpha, int bits_per_sample, int width, int height);
+extern GdkPixbuf *gdk_pixbuf_new (GdkColorspace colorspace, gboolean has_alpha, int bits_per_sample, int width, int height);
 extern gboolean gdk_rectangle_intersect (const GdkRectangle *src1, const GdkRectangle *src2, GdkRectangle *dest);
 extern void gdk_pixbuf_composite (const GdkPixbuf *src, GdkPixbuf *dest, int dest_x, int dest_y, int dest_width, int dest_height, double offset_x, double offset_y, double scale_x, double scale_y, GdkInterpType interp_type, int overall_alpha);
 extern guint gdk_threads_add_timeout (guint interval, GSourceFunc function, gpointer data);
 
+extern void g_source_remove(GSourceFunc);
+extern void _g_signal_connect(GtkWidget *instance, const char *detailed_signal,	_g_signal_callback c_handler,void *data);
+#define g_signal_connect(instance, detailed_signal, c_handler, data)\
+	_g_signal_connect(instance, detailed_signal, c_handler, data)
+#define g_message printf
+
+
 PP_Module g_module_id;
-PPB_GetInterface g_get_browser_interface = NULL;
+PPB_GetInterface g_get_browser_interface;
 PP_Instance CurInstance;
 const PPB_ImageData *g_image_data_interface;
 const PPB_Graphics2D *g_graphics_2d_interface;
