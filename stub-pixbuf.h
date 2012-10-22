@@ -57,9 +57,14 @@ typedef gboolean (* _g_signal_callback)	(GtkWidget *, cairo_t *, gpointer );
 typedef struct _g_signal_node{
 	_g_signal_callback g_signal_callback;	
 }g_signal_node;
+typedef struct _GdkWidget{
+	cairo_surface_t *surface;
+	PP_Resource image;
+}GdkWidget;
 typedef struct _GtkWidget{
 	g_signal_node g_signal_list[G_SIGNAL_NUM];
 	GdkWidget window;
+	PP_Instance instance;
 }GtkWidget;
 typedef struct _GdkPixbuf{
 	PP_Resource image;

@@ -37,16 +37,6 @@ GdkPixbuf *_gdk_pixbuf_new_from_file (PP_Instance instance, const char *filename
 	cairo_surface_destroy(image_surface);
 	//---
 	printf("CurInstance: %d\n", CurInstance);
-	if(!(graphics = g_graphics_2d_interface->Create(CurInstance, &size, PP_FALSE))){
-		printf("Create graphics error!\n");
-		return NULL;
-	}
-	if(!g_instance_interface->BindGraphics(CurInstance, graphics)){
-		printf("BindGraphics error!\n");
-		return NULL;
-	}
-	g_graphics_2d_interface->ReplaceContents(graphics, image);
-	g_graphics_2d_interface->Flush(graphics, PP_MakeCompletionCallback(&FlushCompletionCallback, NULL));
 	//---
 	
 	return pixbuf;
@@ -97,6 +87,22 @@ gdk_pixbuf_new (GdkColorspace colorspace,
 		int bits_per_sample, 
 		int width, 
 		int height){
+	GdkPixbuf *pixbuf;
+	PP_Size size;
+	size.width = width;
+	size.height = height;
+	pixbuf = (GdkPixbuf *)malloc(sizeof(GdkPixbuf));
+	if(colorspace == GDK_COLORSPACE_RGB 
+		&& has_alpha == FALSE 
+		&& bits_per_sample == 8){
+		g_image_data_interface->Create(
+			CurInstance, PP_IMAGEDATAFORMAT_BGRA_PREMUL,&size,PP_TRUE);
+		if(!image){
+			printf("Image data create error!\n");
+			return NULL;
+		}
+	}
+
 }
 gboolean
 gdk_rectangle_intersect (const GdkRectangle *src1,
@@ -137,12 +143,36 @@ gdk_rectangle_intersect (const GdkRectangle *src1,
 void gdk_pixbuf_composite (const GdkPixbuf *src, GdkPixbuf *dest, int dest_x, int dest_y, int dest_width, int dest_height, double offset_x, double offset_y, double scale_x, double scale_y, GdkInterpType interp_type, int overall_alpha){
 
 }
-guint gdk_threads_add_timeout (guint interval, GSourceFunc function, gpointer data){
-
+struct PP_CompletionCallback_Func_GSourceFunc_convertor{
+	GSourceFunc function;
+	PP_CompletionCallback callback;
+}
+PP_CompletionCallback  PP_CompletionCallback_Func_GSourceFunc_convert(struct PP_CompletionCallback_Func_GSourceFunc_convertor){
+	
+}
+guint 
+gdk_threads_add_timeout (
+		guint interval, 
+		GSourceFunc function, 
+		gpointer data)
+{
+	int32_t result;
+	struct PP_CompletionCallback callback;
+	resutl = 0;
+	callback.func = function;
+	callback.user_data = data;
+	callback.flags = PP_COMPLETIONCALLBACK_FLAG_NONE;
+	while(1){
+		g_core_interface->CallOnMainThread
+			(interval, callback, result);
+	}
 }
 
+
 GtkWidget *gtk_drawing_area_new (void){
-	return NULL;
+	GtkWidget *widget = (GtkWidget *)malloc(sizeof(GtkWidget));
+	widget->instance = CurInstance;
+	return widget;
 }
 void gtk_widget_show_all(GtkWidget *widget){
 
@@ -154,7 +184,37 @@ void gtk_container_add(GtkContainer* container, GtkWidget* widget){
 }
 void gtk_widget_queue_draw(GtkWidget *widget){
 	cairo_t *cr;
-	widget->g_signal_list[DRAW].g_signal_callback(widget, cr, NULL);	
+	cairo_surface_t *surface;
+	PP_Resource image;
+	struct PP_ImageDataDesc image_desc;
+	unsigned char *surface_data, *image_data;
+	int num_chars;
+	PP_Size size;
+	widget->g_signal_list[DRAW].g_signal_callback(widget, cr, NULL);
+	surface = cairo_get_target(cr);
+	size.width = cairo_image_surface_get_width(surface);
+	size.height = cairo_image_surface_get_height(surface);
+	image = g_image_data_interface->Create(
+		widget->instance, PP_IMAGEDATAFORMAT_BGRA_PREMUL,&size,PP_TRUE);
+	g_image_data_interface->Describe(image, &image_desc);
+	image_data = g_image_data_interface->Map(image);
+	num_chars = image_desc.stride * size.height;
+	surface_data = cairo_image_surface_get_data(surface);
+	memcpy(image_data, surface_data, num_chars*sizeof(char));
+	cairo_surface_destroy(image_surface);
+	//---
+	printf("CurInstance: %d\n", CurInstance);
+	if(!(graphics = g_graphics_2d_interface->Create(CurInstance, &size, PP_FALSE))){
+		printf("Create graphics error!\n");
+		return NULL;
+	}
+	if(!g_instance_interface->BindGraphics(CurInstance, graphics)){
+		printf("BindGraphics error!\n");
+		return NULL;
+	}
+	g_graphics_2d_interface->ReplaceContents(graphics, image);
+	g_graphics_2d_interface->Flush(graphics, PP_MakeCompletionCallback(&FlushCompletionCallback, NULL));
+	//---
 } 
 void gtk_main_quit (void){
 
