@@ -83,6 +83,7 @@ typedef struct _GtkWidget{
 }GtkWidget;
 typedef struct _GdkPixbuf{
 	PP_Resource image;
+	int width, height, stride;
 }GdkPixbuf;
 typedef struct _GdkRectangle{
 	int x,y;
@@ -126,8 +127,8 @@ _gdk_pixbuf_new_from_file (PP_Instance instance,
 		printf("cairo_image_surface_from file() error!\n");
 		return NULL;
 	}
-	size.width = cairo_image_surface_get_width(image_surface);
-	size.height = cairo_image_surface_get_height(image_surface);
+	pixbuf->width = size.width = cairo_image_surface_get_width(image_surface);
+	pixbuf->height = size.height = cairo_image_surface_get_height(image_surface);
 	image = pixbuf->image = g_image_data_interface->Create(
 		instance, PP_IMAGEDATAFORMAT_BGRA_PREMUL,&size,PP_TRUE);
 	if(!image){
@@ -141,6 +142,8 @@ _gdk_pixbuf_new_from_file (PP_Instance instance,
 		return NULL;
 	}
 	num_chars = image_desc.stride * size.height;
+	pixbuf->stride = image_desc.stride;
+	
 	surface_data = cairo_image_surface_get_data(image_surface);
 	memcpy(image_data, surface_data, num_chars*sizeof(char));
 	cairo_surface_destroy(image_surface);
@@ -198,9 +201,20 @@ _gdk_pixbuf_copy_area (
 		int width, int height, 
 		GdkPixbuf *dest_pixbuf, int dest_x, int dest_y){
 	unsigned char *src_image_data, *dest_image_data;
+	struct PP_ImageDataDesc image_desc;
+	int stride;
+	int i,j;
 	src_image_data = g_image_data_interface->Map(src_pixbuf->image);
 	dest_image_data = g_image_data_interface->Map(dest_pixbuf->image);
-	
+	g_image_data_interface->Describe(src_pixbuf->image, &image_desc);
+	stride = image_desc.stride;
+	printf("width = %d, height = %d stride = %d\n", width, height, stride);
+
+	for(j=0; j<height; j++)
+		for(i=0; i<width*4; i++){
+			dest_image_data[(dest_y+j)*stride+dest_x+i] 
+				= src_image_data[(src_y+j)*stride+src_x+i];	
+		}
 
 }
 #define gdk_pixbuf_new(colorspace, has_alpha, bits_per_sample, width, height)\
@@ -214,11 +228,14 @@ _gdk_pixbuf_new (PP_Instance instance,
 		int height){
 	GdkPixbuf *pixbuf;
 	struct PP_Size size;
+	struct PP_ImageDataDesc image_desc;
 	
 	size.width = width;
 	size.height = height;
 	
 	pixbuf = (GdkPixbuf *)malloc(sizeof(GdkPixbuf));
+	pixbuf->width = width;
+	pixbuf->height = height;
 	printf("My gdk_pixbuf_new() called!\n");
 	if(colorspace == GDK_COLORSPACE_RGB 
 		&& has_alpha == FALSE 
@@ -229,6 +246,8 @@ _gdk_pixbuf_new (PP_Instance instance,
 			printf("gdk_pixbuf_new(): Image data create error!\n");
 			return NULL;
 		}
+		g_image_data_interface->Describe(pixbuf->image, &image_desc);
+		pixbuf->stride = image_desc.stride;
 		return pixbuf;
 	}
 
@@ -274,6 +293,19 @@ _gdk_rectangle_intersect (const GdkRectangle *src1,
 }
 #define gdk_pixbuf_composite(src, dest, dest_x, dest_y, dest_width, dest_height, offset_x, offset_y, scale_x, scale_y, interp_type, overall_alpha)\
 	_gdk_pixbuf_composite(src, dest, dest_x, dest_y, dest_width, dest_height, offset_x, offset_y, scale_x, scale_y, interp_type, overall_alpha)
+
+/*			gdk_pixbuf_composite (images[i],
+					      frame,
+					      dest.x, dest.y,
+					      dest.width, dest.height,
+					      xpos, ypos,
+					      k, k,
+					      GDK_INTERP_NEAREST,
+					      ((i & 1)
+					       ? MAX (127, fabs (255 * sin (f * 2.0 * G_PI)))
+					       : MAX (127, fabs (255 * cos (f * 2.0 * G_PI)))));
+*/
+					     
 void 
 _gdk_pixbuf_composite(
 		const GdkPixbuf *src,
@@ -284,7 +316,52 @@ _gdk_pixbuf_composite(
 		double scale_x, double scale_y, 
 		GdkInterpType interp_type, 
 		int overall_alpha){
+	unsigned char *src_image_data, *dest_image_data;
+	cairo_surface_t *src_surface, *tmp_surface, *dest_surface;
+	cairo_t *src_cr;
+	int i,j;
+	int stride;
+	struct PP_Size size;
+	PP_Resource graphics;
+	stride = src->stride;
+	src_image_data = g_image_data_interface->Map(src->image);
+	dest_image_data = g_image_data_interface->Map(dest->image);
+	dest_surface = cairo_image_surface_create_for_data
+		(dest_image_data, CAIRO_FORMAT_ARGB32, 
+		 dest->width, dest->height, dest->stride);
+	src_surface = cairo_image_surface_create_for_data
+		(src_image_data, CAIRO_FORMAT_ARGB32, 
+		 src->width, src->height, src->stride);
+	tmp_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, src->width, src->height);
+	src_cr = cairo_create(dest_surface);
 
+	printf("dest_x:%d dest_y:%d dest_width:%d dest_height:%d\n", dest_x, dest_y, dest_width, dest_height);
+
+	printf("stride:%d\n", stride);
+	size.width = cairo_image_surface_get_width(tmp_surface);
+	size.height = cairo_image_surface_get_height(tmp_surface);
+	printf("Before translation width:%d height:%d\n", size.width, size.height);
+
+	cairo_scale(src_cr, scale_x, scale_y);
+	cairo_translate(src_cr, offset_x, offset_y);
+	cairo_set_source_surface(src_cr, src_surface, 0, 0);
+	cairo_paint(src_cr);
+	src_image_data = cairo_image_surface_get_data(src_surface);
+	
+	size.width = cairo_image_surface_get_width(tmp_surface);
+	size.height = cairo_image_surface_get_height(tmp_surface);
+	printf("After translation width:%d height:%d\n", size.width, size.height);
+
+	//for(j=0; j<dest_height; j++)
+	//	for(i=0; i<dest_width*4; i++){
+	//		dest_image_data[(dest_y+j)*stride+dest_x+i]
+	//		       	= src_image_data[j*stride+i];
+			/*
+			if(i%4 == 0){
+				dest_image_data[(dest_y+j)*stride+dest_x+i] += overall_alpha;
+				dest_image_data[(dest_y+j)*stride+dest_x+i] %= 256;
+			}*/
+	//	}
 }
 
 #define gdk_threads_add_timeout(interval, function, data)\
@@ -301,10 +378,10 @@ _gdk_threads_add_timeout (
 	callback.func = (PP_CompletionCallback_Func )function;
 	callback.user_data = data;
 	callback.flags = PP_COMPLETIONCALLBACK_FLAG_NONE;
-	//while(1){
+//	while(1){
 		g_core_interface->CallOnMainThread
 			(interval, callback, result);
-	//}
+//	}
 }
 
 #define gtk_drawing_area_new() _gtk_drawing_area_new(Instance)
@@ -546,7 +623,7 @@ static gboolean
 draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
 {
 	cairo_surface_t *surface;
-        gdk_cairo_set_source_pixbuf (cr, background/*frame*/, 0, 0);
+        gdk_cairo_set_source_pixbuf (cr, frame, 0, 0);
         cairo_paint (cr);
 
 	surface = cairo_get_target(cr);
