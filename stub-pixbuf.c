@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <cairo.h>
 #include <math.h>
+#include <pthread.h>
 
 #include "ppapi/c/pp_errors.h"
 #include "ppapi/c/pp_module.h"
@@ -294,18 +295,6 @@ _gdk_rectangle_intersect (const GdkRectangle *src1,
 #define gdk_pixbuf_composite(src, dest, dest_x, dest_y, dest_width, dest_height, offset_x, offset_y, scale_x, scale_y, interp_type, overall_alpha)\
 	_gdk_pixbuf_composite(src, dest, dest_x, dest_y, dest_width, dest_height, offset_x, offset_y, scale_x, scale_y, interp_type, overall_alpha)
 
-/*			gdk_pixbuf_composite (images[i],
-					      frame,
-					      dest.x, dest.y,
-					      dest.width, dest.height,
-					      xpos, ypos,
-					      k, k,
-					      GDK_INTERP_NEAREST,
-					      ((i & 1)
-					       ? MAX (127, fabs (255 * sin (f * 2.0 * G_PI)))
-					       : MAX (127, fabs (255 * cos (f * 2.0 * G_PI)))));
-*/
-					     
 void 
 _gdk_pixbuf_composite(
 		const GdkPixbuf *src,
@@ -322,7 +311,6 @@ _gdk_pixbuf_composite(
 	int i,j;
 	int stride;
 	struct PP_Size size;
-	PP_Resource graphics;
 	stride = src->stride;
 	src_image_data = g_image_data_interface->Map(src->image);
 	dest_image_data = g_image_data_interface->Map(dest->image);
@@ -342,9 +330,10 @@ _gdk_pixbuf_composite(
 	size.height = cairo_image_surface_get_height(tmp_surface);
 	printf("Before translation width:%d height:%d\n", size.width, size.height);
 
-	cairo_scale(src_cr, scale_x, scale_y);
 	cairo_translate(src_cr, offset_x, offset_y);
+	cairo_scale(src_cr, scale_x, scale_y);
 	cairo_set_source_surface(src_cr, src_surface, 0, 0);
+
 	cairo_paint(src_cr);
 	src_image_data = cairo_image_surface_get_data(src_surface);
 	
@@ -352,16 +341,23 @@ _gdk_pixbuf_composite(
 	size.height = cairo_image_surface_get_height(tmp_surface);
 	printf("After translation width:%d height:%d\n", size.width, size.height);
 
-	//for(j=0; j<dest_height; j++)
-	//	for(i=0; i<dest_width*4; i++){
-	//		dest_image_data[(dest_y+j)*stride+dest_x+i]
-	//		       	= src_image_data[j*stride+i];
-			/*
-			if(i%4 == 0){
-				dest_image_data[(dest_y+j)*stride+dest_x+i] += overall_alpha;
-				dest_image_data[(dest_y+j)*stride+dest_x+i] %= 256;
-			}*/
-	//	}
+}
+
+typedef struct _thread_timeout_func{
+	guint interval;
+	GSourceFunc function;
+	gpointer data;
+}thread_timeout_func;
+
+void *_thread_timeout(void *func){
+	thread_timeout_func *timeout_func = (thread_timeout_func *)func;
+	gboolean result = TRUE;
+	printf("thread_timeout() called\n");
+	while(result){
+		usleep(timeout_func->interval);
+		result = (*(timeout_func->function))(timeout_func->data);
+	}
+
 }
 
 #define gdk_threads_add_timeout(interval, function, data)\
@@ -372,16 +368,14 @@ _gdk_threads_add_timeout (
 		GSourceFunc function, 
 		gpointer data)
 {
-	int32_t result;
-	struct PP_CompletionCallback callback;
-	result = PP_OK;
-	callback.func = (PP_CompletionCallback_Func )function;
-	callback.user_data = data;
-	callback.flags = PP_COMPLETIONCALLBACK_FLAG_NONE;
-//	while(1){
-		g_core_interface->CallOnMainThread
-			(interval, callback, result);
-//	}
+	pthread_t pthread_timeout;
+	thread_timeout_func *func = (thread_timeout_func *)malloc(sizeof(thread_timeout_func));
+	func->interval = interval;
+	func->function = function;
+	func->data = data;
+	pthread_create(&pthread_timeout, NULL, _thread_timeout, (void *)func);
+	printf("pthread_create() called\n");
+	return pthread_timeout;
 }
 
 #define gtk_drawing_area_new() _gtk_drawing_area_new(Instance)
@@ -455,6 +449,7 @@ void _gtk_widget_queue_draw(GtkWidget *widget){
 	g_graphics_2d_interface->ReplaceContents(graphics, image);
 	g_graphics_2d_interface->Flush(graphics, PP_MakeCompletionCallback(&FlushCompletionCallback, NULL));
 	//---
+	//g_core_interface->ReleaseResource(graphics);
 } 
 
 #define gtk_main_quit _gtk_main_quit
