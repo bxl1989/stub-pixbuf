@@ -78,12 +78,14 @@ typedef struct _GdkWidget{
 }GdkWidget;
 typedef struct _GtkWidget{
 	g_signal_node g_signal_list[G_SIGNAL_NUM];
+	PP_Resource image;
 	cairo_surface_t *surface;
 	PP_Instance instance;
-	int width, height;
+	int width, height, stride;
 }GtkWidget;
 typedef struct _GdkPixbuf{
 	PP_Resource image;
+	cairo_surface_t *surface;
 	int width, height, stride;
 }GdkPixbuf;
 typedef struct _GdkRectangle{
@@ -107,9 +109,6 @@ const PPB_Core* g_core_interface;
 
 #define gdk_pixbuf_new_from_file(filename, error) \
 	_gdk_pixbuf_new_from_file(CurInstance, filename, error)
-void FlushCompletionCallback(void *user_data, int32_t result){
-	//----Do Nothing----
-}
 GdkPixbuf *
 _gdk_pixbuf_new_from_file (PP_Instance instance,
 			   const char *filename, 
@@ -122,7 +121,6 @@ _gdk_pixbuf_new_from_file (PP_Instance instance,
 	struct PP_Size size;
 	int num_chars, i;
 	GdkPixbuf *pixbuf = (GdkPixbuf *)malloc(sizeof(GdkPixbuf));
-	printf("My gdk_pixbuf_new_from_file() called!\n");
 	image_surface = cairo_image_surface_create_from_png(filename);
 	if(!image_surface){
 		printf("cairo_image_surface_from file() error!\n");
@@ -147,22 +145,20 @@ _gdk_pixbuf_new_from_file (PP_Instance instance,
 	
 	surface_data = cairo_image_surface_get_data(image_surface);
 	memcpy(image_data, surface_data, num_chars*sizeof(char));
+	pixbuf->surface = cairo_image_surface_create_for_data
+		(image_data, CAIRO_FORMAT_ARGB32, 
+		 pixbuf->width, pixbuf->height, pixbuf->stride);
 	cairo_surface_destroy(image_surface);
 	
 	return pixbuf;
 }
 #define gdk_pixbuf_get_width(pixbuf) _gdk_pixbuf_get_width(pixbuf)
 int _gdk_pixbuf_get_width(const GdkPixbuf *pixbuf){
-	struct PP_ImageDataDesc image_desc;
-	printf("My gdk_pixbuf_get_width() called\n");	
-	g_image_data_interface->Describe(pixbuf->image, &image_desc);
-	return image_desc.size.width;
+	return pixbuf->width;
 }
 #define gdk_pixbuf_get_height(pixbuf) _gdk_pixbuf_get_height(pixbuf)
 int _gdk_pixbuf_get_height(const GdkPixbuf *pixbuf){
-	struct PP_ImageDataDesc image_desc;
-	g_image_data_interface->Describe(pixbuf->image, &image_desc);
-	return image_desc.size.height;
+	return pixbuf->height;
 }
 #define gdk_cairo_set_source_pixbuf(cr, pixbuf, pixbuf_x, pixbuf_y)\
 	_gdk_cairo_set_source_pixbuf(cr, pixbuf, pixbuf_x, pixbuf_y)
@@ -171,26 +167,7 @@ _gdk_cairo_set_source_pixbuf (cairo_t         *cr,
                               const GdkPixbuf *pixbuf,
                               double          pixbuf_x,
                               double          pixbuf_y){
-	unsigned char *image_data;
-	cairo_surface_t *surface;
-	int32_t width, height, stride;
-	width = gdk_pixbuf_get_width(pixbuf);
-	height = gdk_pixbuf_get_height(pixbuf);
-	image_data = (unsigned char *)g_image_data_interface->Map(pixbuf->image);
-	if(!image_data)
-		printf("image_data is NULL\n");
-	stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, width);
-	surface = cairo_image_surface_create_for_data(image_data, CAIRO_FORMAT_ARGB32, width, height, stride);
-	if(cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
-		printf("In _gdk_cairo_set_source_pixbuf : create_for_data succeeded\n");
-	else
-		printf("In _gdk_cairo_set_source_pixbuf : create_for_data failed\n");
-	cairo_set_source_surface(cr, surface, pixbuf_x, pixbuf_y);	
-	surface = cairo_get_group_target(cr);
-	if(cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
-		printf("In _gdk_cairo_set_source_pixbuf : cairo_get_target succeeded\n");
-	else
-		printf("In _gdk_cairo_set_source_pixbuf : cairo_get_target failed\n");
+	cairo_set_source_surface(cr, pixbuf->surface, pixbuf_x, pixbuf_y);	
 }
 
 #define gdk_pixbuf_copy_area(src_pixbuf, src_x, src_y, width, height, dest_pixbuf, dest_x, dest_y)\
@@ -209,7 +186,6 @@ _gdk_pixbuf_copy_area (
 	dest_image_data = g_image_data_interface->Map(dest_pixbuf->image);
 	g_image_data_interface->Describe(src_pixbuf->image, &image_desc);
 	stride = image_desc.stride;
-	printf("width = %d, height = %d stride = %d\n", width, height, stride);
 
 	for(j=0; j<height; j++)
 		for(i=0; i<width*4; i++){
@@ -229,6 +205,7 @@ _gdk_pixbuf_new (PP_Instance instance,
 		int height){
 	GdkPixbuf *pixbuf;
 	struct PP_Size size;
+	unsigned char *image_data;
 	struct PP_ImageDataDesc image_desc;
 	
 	size.width = width;
@@ -237,7 +214,6 @@ _gdk_pixbuf_new (PP_Instance instance,
 	pixbuf = (GdkPixbuf *)malloc(sizeof(GdkPixbuf));
 	pixbuf->width = width;
 	pixbuf->height = height;
-	printf("My gdk_pixbuf_new() called!\n");
 	if(colorspace == GDK_COLORSPACE_RGB 
 		&& has_alpha == FALSE 
 		&& bits_per_sample == 8){
@@ -245,10 +221,16 @@ _gdk_pixbuf_new (PP_Instance instance,
 			CurInstance, PP_IMAGEDATAFORMAT_BGRA_PREMUL, &size,PP_TRUE);
 		if(!(pixbuf->image)){
 			printf("gdk_pixbuf_new(): Image data create error!\n");
+			free(pixbuf);
 			return NULL;
 		}
 		g_image_data_interface->Describe(pixbuf->image, &image_desc);
 		pixbuf->stride = image_desc.stride;
+		image_data = (unsigned char *)g_image_data_interface->Map(pixbuf->image);
+		pixbuf->surface = cairo_image_surface_create_for_data
+			(image_data, CAIRO_FORMAT_ARGB32, 
+			 pixbuf->width, pixbuf->height, pixbuf->stride);
+		
 		return pixbuf;
 	}
 
@@ -305,43 +287,22 @@ _gdk_pixbuf_composite(
 		double scale_x, double scale_y, 
 		GdkInterpType interp_type, 
 		int overall_alpha){
-	unsigned char *src_image_data, *dest_image_data;
-	cairo_surface_t *src_surface, *tmp_surface, *dest_surface;
-	cairo_t *src_cr;
+	cairo_t *dest_cr;
 	int i,j;
 	int stride;
 	struct PP_Size size;
 	stride = src->stride;
-	src_image_data = g_image_data_interface->Map(src->image);
-	dest_image_data = g_image_data_interface->Map(dest->image);
-	dest_surface = cairo_image_surface_create_for_data
-		(dest_image_data, CAIRO_FORMAT_ARGB32, 
-		 dest->width, dest->height, dest->stride);
-	src_surface = cairo_image_surface_create_for_data
-		(src_image_data, CAIRO_FORMAT_ARGB32, 
-		 src->width, src->height, src->stride);
-	tmp_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, src->width, src->height);
-	src_cr = cairo_create(dest_surface);
+	dest_cr = cairo_create(dest->surface);
 
-	printf("dest_x:%d dest_y:%d dest_width:%d dest_height:%d\n", dest_x, dest_y, dest_width, dest_height);
+	cairo_translate(dest_cr, offset_x, offset_y);
+	cairo_scale(dest_cr, scale_x, scale_y);
+	cairo_set_source_surface(dest_cr, src->surface, dest_x-offset_x, dest_y-offset_y);
 
-	printf("stride:%d\n", stride);
-	size.width = cairo_image_surface_get_width(tmp_surface);
-	size.height = cairo_image_surface_get_height(tmp_surface);
-	printf("Before translation width:%d height:%d\n", size.width, size.height);
-
-	cairo_translate(src_cr, offset_x, offset_y);
-	cairo_scale(src_cr, scale_x, scale_y);
-	cairo_set_source_surface(src_cr, src_surface, 0, 0);
-
-	cairo_paint(src_cr);
-	src_image_data = cairo_image_surface_get_data(src_surface);
-	
-	size.width = cairo_image_surface_get_width(tmp_surface);
-	size.height = cairo_image_surface_get_height(tmp_surface);
-	printf("After translation width:%d height:%d\n", size.width, size.height);
+	cairo_paint_with_alpha(dest_cr, (overall_alpha/256.0));
 
 }
+
+gboolean isFlushed;
 
 typedef struct _thread_timeout_func{
 	guint interval;
@@ -352,10 +313,12 @@ typedef struct _thread_timeout_func{
 void *_thread_timeout(void *func){
 	thread_timeout_func *timeout_func = (thread_timeout_func *)func;
 	gboolean result = TRUE;
-	printf("thread_timeout() called\n");
 	while(result){
+		isFlushed = FALSE;
 		usleep(timeout_func->interval);
 		result = (*(timeout_func->function))(timeout_func->data);
+		while(!isFlushed);
+		printf("After while(!isFlushed)\n");
 	}
 
 }
@@ -370,22 +333,13 @@ _gdk_threads_add_timeout (
 {
 	pthread_t pthread_timeout;
 	thread_timeout_func *func = (thread_timeout_func *)malloc(sizeof(thread_timeout_func));
-	func->interval = interval;
+	func->interval = 1000*interval;
 	func->function = function;
 	func->data = data;
 	pthread_create(&pthread_timeout, NULL, _thread_timeout, (void *)func);
-	printf("pthread_create() called\n");
 	return pthread_timeout;
 }
 
-#define gtk_drawing_area_new() _gtk_drawing_area_new(Instance)
-GtkWidget *_gtk_drawing_area_new (PP_Instance instance){
-	GtkWidget *widget = (GtkWidget *)malloc(sizeof(GtkWidget));
-	widget->instance = instance;
-	widget->surface = NULL;
-	widget->width = widget->height = 0;
-	return widget;
-}
 
 #define gtk_widget_show_all(widget) _gtk_widget_show_all(widget)
 void _gtk_widget_show_all(GtkWidget *widget){
@@ -393,63 +347,54 @@ void _gtk_widget_show_all(GtkWidget *widget){
 }
 
 
-#define gtk_container_add(container, widget)\
-	_gtk_container_add(container, widget)
-void gtk_container_add(GtkContainer* container, GtkWidget* widget){
-	
-	widget->instance = container->instance;
-	widget->surface = cairo_surface_reference(container->surface);
-	widget->width = container->width;
-	widget->height = container->height;
+
+PP_Resource MakeAndBindGraphics(PP_Instance instance, struct PP_Size *size){
+	PP_Resource graphics;
+	graphics = g_graphics_2d_interface->Create(instance, size, PP_FALSE);
+	if(!graphics){
+		printf("Create graphics error!\n");
+		return 0;
+	}
+	if(!g_instance_interface->BindGraphics(CurInstance, graphics)){
+		printf("BindGraphics error!\n");
+		g_core_interface->ReleaseResource(graphics);
+		return 0;
+	}
+	return graphics;
 
 }
-
+PP_Resource graphics;
+void FlushCompletionCallback(void *user_data, int32_t result){
+	printf("Flush CompletionCallback() is called\n");
+	isFlushed = TRUE;	
+}
 #define gtk_widget_queue_draw(widget)\
 	_gtk_widget_queue_draw(widget)
 void _gtk_widget_queue_draw(GtkWidget *widget){
 	cairo_t *cr;
-	cairo_surface_t *surface;
-	PP_Resource image, graphics;
 	struct PP_ImageDataDesc image_desc;
 	unsigned char *surface_data, *image_data;
 	int num_chars;
 	struct PP_Size size;
-	
+	struct PP_Point point;
+	struct PP_Rect rect;
 	cr = cairo_create(widget->surface);
 	
 	widget->g_signal_list[DRAW].g_signal_callback(widget, cr, NULL);
 	
-	surface = cairo_get_target(cr);
-	if(cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
-		printf("cairo_get_target succeeded\n");
-	else
-		printf("cairo_get_target failed\n");
-
-	size.width = cairo_image_surface_get_width(surface);
-	size.height = cairo_image_surface_get_height(surface);
-	image = g_image_data_interface->Create(
-		widget->instance, PP_IMAGEDATAFORMAT_BGRA_PREMUL,&size,PP_TRUE);
-	g_image_data_interface->Describe(image, &image_desc);
-	image_data = g_image_data_interface->Map(image);
-	num_chars = image_desc.stride * size.height;
-	surface_data = cairo_image_surface_get_data(surface);
-	memcpy(image_data, surface_data, num_chars*sizeof(char));
-	cairo_surface_destroy(surface);
-	//---
-	printf("CurInstance: %d\n", CurInstance);
+	size.width = cairo_image_surface_get_width(widget->surface);
+	size.height = cairo_image_surface_get_height(widget->surface);
+	
+	point.x = 0;
+	point.y = 0;
+	
+	rect.point = point;
+	rect.size = size;
+	
 	printf("size width:%d, height:%d\n", size.width, size.height);
-	if(!(graphics = g_graphics_2d_interface->Create(CurInstance, &size, PP_FALSE))){
-		printf("Create graphics error!\n");
-		return;
-	}
-	if(!g_instance_interface->BindGraphics(CurInstance, graphics)){
-		printf("BindGraphics error!\n");
-		return;
-	}
-	g_graphics_2d_interface->ReplaceContents(graphics, image);
+	
+	g_graphics_2d_interface->PaintImageData(graphics, widget->image, &point, &rect);
 	g_graphics_2d_interface->Flush(graphics, PP_MakeCompletionCallback(&FlushCompletionCallback, NULL));
-	//---
-	//g_core_interface->ReleaseResource(graphics);
 } 
 
 #define gtk_main_quit _gtk_main_quit
@@ -476,20 +421,55 @@ GtkWidget * _gtk_window_new (PP_Instance instance, const uint32_t window_type){
 	widget->surface = NULL;
 	widget->width = widget->height = 0;
 	return widget;
-//	if(window_type == GTK_WINDOW_TOPLEVEL){
-//		
-//	}
-//	return NULL;
 }
 
 #define gtk_widget_set_size_request(widget, a, b)\
 	_gtk_widget_set_size_request(widget, a, b)
 void _gtk_widget_set_size_request(GtkWidget* widget, gint a, gint b){
-	widget->width = a;
-	widget->height = b;
+	struct PP_ImageDataDesc image_desc;
+	unsigned char *image_data;
+	struct PP_Size size;
+	size.width = widget->width = a;
+	size.height = widget->height = b;
 	cairo_surface_destroy(widget->surface);
-	widget->surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, widget->width, widget->height);
+	widget->image = g_image_data_interface->Create
+		(widget->instance, PP_IMAGEDATAFORMAT_BGRA_PREMUL, &size, PP_TRUE);
+	if(!(widget->image)){
+		printf("Image data create error!\n");
+		return;
+	}
+	g_image_data_interface->Describe(widget->image, &image_desc);
+	image_data = (unsigned char *)g_image_data_interface->Map(widget->image);
+	if(!image_data){
+		g_core_interface->ReleaseResource(widget->image);
+		return;
+	}
+	widget->stride = image_desc.stride;
+	widget->surface = cairo_image_surface_create_for_data
+		(image_data, CAIRO_FORMAT_ARGB32, widget->width, widget->height, widget->stride);
+	
+	graphics = MakeAndBindGraphics(widget->instance, &size);
 
+}
+
+#define gtk_drawing_area_new() _gtk_drawing_area_new(Instance)
+GtkWidget *_gtk_drawing_area_new (PP_Instance instance){
+	GtkWidget *widget = (GtkWidget *)malloc(sizeof(GtkWidget));
+	widget->instance = instance;
+	widget->surface = NULL;
+	widget->width = widget->height = 0;
+	return widget;
+}
+
+#define gtk_container_add(container, widget)\
+	_gtk_container_add(container, widget)
+void gtk_container_add(GtkContainer* container, GtkWidget* widget){
+	
+	widget->instance = container->instance;
+	widget->surface = cairo_surface_reference(container->surface);
+	widget->width = container->width;
+	widget->height = container->height;
+	widget->image = container->image;
 }
 
 #define gtk_window_set_resizable(window, resizable)\
@@ -621,12 +601,6 @@ draw_cb (GtkWidget *widget, cairo_t *cr, gpointer data)
         gdk_cairo_set_source_pixbuf (cr, frame, 0, 0);
         cairo_paint (cr);
 
-	surface = cairo_get_target(cr);
-	if(cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS)
-		printf("In draw_cb: cairo_get_target succeeded\n");
-	else
-		printf("In draw_cb: cairo_get_target failed\n");
-	
 	return TRUE;
 }
 
@@ -723,6 +697,7 @@ PP_Bool DidCreate(PP_Instance Instance, uint32_t argc, const char *argn[], const
 	//printf("This is an instance!\n");
 	extern PP_Instance CurInstance;
 	CurInstance = Instance;
+	
 	//-----
 	GtkWidget *window;
 
